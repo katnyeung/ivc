@@ -90,7 +90,9 @@ cargo build --release
 | `ivc log` | Display intention tree for current branch | No |
 | `ivc log <filepath>` | Show all intentions that touched a file | No |
 | `ivc backfill --pr 38` | Reconstruct intentions for a historical PR | Yes (one call) |
-| `ivc backfill --pr 38 --dry-run` | Preview what would be processed | No |
+| `ivc backfill --since 2025-01-01` | Backfill all PRs merged since a date | Yes (one per PR) |
+| `ivc backfill --file src/main.rs` | Backfill all PRs that touched a file | Yes (one per PR) |
+| `ivc backfill ... --dry-run` | Preview what would be processed | No |
 
 ### Git Passthroughs
 
@@ -138,11 +140,21 @@ IVC uses embedded SurrealDB with a graph data model:
 IVC can reconstruct intentions for historical PRs that were merged before IVC was adopted:
 
 ```bash
-# Preview what would be processed
+# Single PR
+ivc backfill --pr 38
 ivc backfill --pr 38 --dry-run
 
-# Reconstruct intentions
-ivc backfill --pr 38
+# Date range (processes merge commits in range, one LLM call per PR)
+ivc backfill --since 2025-01-01
+ivc backfill --since 2025-06-01 --until 2025-12-31 --limit 20
+
+# File history (all PRs that touched a specific file)
+ivc backfill --file src/service/ContentAutomationService.java
+
+# Common flags
+#   --dry-run          Preview without calling LLM
+#   --limit <n>        Max PRs to process (default: 10)
+#   --skip-existing    Skip PRs that already have intentions (default: true)
 ```
 
 Backfilled intentions are stored with `source_type = BACKFILLED` and `source_confidence = 0.35` (lower than live-captured intentions at 0.70). The `created_at` timestamp uses the original merge date to maintain correct chronological ordering.

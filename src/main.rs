@@ -162,15 +162,35 @@ enum Commands {
         base: Option<String>,
     },
 
-    /// Backfill intention tree for a historical PR
+    /// Backfill intention trees for historical PRs
     Backfill {
-        /// PR number to backfill
+        /// Backfill a specific PR by number
         #[arg(long)]
-        pr: u32,
+        pr: Option<u32>,
 
-        /// Show what would be processed without making an LLM call
+        /// Backfill all PRs that touched this file
+        #[arg(long)]
+        file: Option<String>,
+
+        /// Backfill PRs merged since this date (ISO format: 2025-01-01)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Backfill PRs merged until this date (ISO format: 2025-12-31)
+        #[arg(long)]
+        until: Option<String>,
+
+        /// Maximum number of PRs to process (default: 10)
+        #[arg(long, default_value = "10")]
+        limit: usize,
+
+        /// Show what would be processed without calling LLM
         #[arg(long)]
         dry_run: bool,
+
+        /// Skip PRs that already have intentions (default: true)
+        #[arg(long, default_value = "true")]
+        skip_existing: bool,
     },
 
     /// Display the intention tree for the current branch, or for a specific file
@@ -194,7 +214,26 @@ async fn main() -> Result<()> {
         Commands::Commit { args } => cli::commit::run(args).await,
         Commands::Push { args } => cli::push::run(args).await,
         Commands::Pr { base } => cli::pr::run(base.unwrap_or_default()).await,
-        Commands::Backfill { pr, dry_run } => cli::backfill::run(pr, dry_run).await,
+        Commands::Backfill {
+            pr,
+            file,
+            since,
+            until,
+            limit,
+            dry_run,
+            skip_existing,
+        } => {
+            cli::backfill::run(cli::backfill::BackfillArgs {
+                pr,
+                file,
+                since,
+                until,
+                limit,
+                dry_run,
+                skip_existing,
+            })
+            .await
+        }
         Commands::Log { file } => cli::log::run(file).await,
 
         // Pure git passthroughs — no IVC metadata capture
