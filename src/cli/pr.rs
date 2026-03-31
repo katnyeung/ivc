@@ -170,8 +170,8 @@ pub async fn run(args: PrArgs) -> Result<()> {
         .workdir()
         .context("Could not determine repository working directory")?;
     let ivc_json_content = ivc_json::generate_ivc_json(&tree, &branch, &repo_name);
-    ivc_json::commit_ivc_json(workdir, &ivc_json_content)?;
-    println!("\nCommitted .ivc.json to branch.");
+    ivc_json::commit_ivc_json(workdir, &ivc_json_content, &branch)?;
+    println!("\nCommitted intention tree to .ivc/trees/.");
 
     if args.no_pr {
         println!("Stored in .ivc/data. Run `ivc log` to view again.");

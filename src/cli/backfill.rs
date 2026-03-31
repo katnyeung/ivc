@@ -9,6 +9,7 @@ use crate::db;
 use crate::git;
 use crate::models::commit_capture::{CommitCapture, DiffStats};
 use crate::models::event::{Event, EventType};
+use crate::ivc_json;
 use crate::models::intention::{BackfillMetadata, SourceType};
 
 pub struct BackfillArgs {
@@ -149,6 +150,10 @@ pub async fn run(args: BackfillArgs) -> Result<()> {
     let mut total_tokens_used: u32 = 0;
     let mut processed_count: usize = 0;
 
+    let workdir = repo
+        .workdir()
+        .context("Could not determine repository working directory")?;
+
     // Consume all_stats, process non-skipped ones
     for stats in all_stats {
         if stats.already_exists {
@@ -158,6 +163,8 @@ pub async fn run(args: BackfillArgs) -> Result<()> {
         let label = merge_label(&stats.info);
         let commit_count = stats.info.commits.len();
         let estimated = stats.estimated_tokens;
+        let pr_number = stats.info.pr_number;
+        let branch_label = merge_branch_label(&stats.info);
 
         println!(
             "[{}/{}] {} \"{}\" -- {} commits",
@@ -176,6 +183,15 @@ pub async fn run(args: BackfillArgs) -> Result<()> {
                     let prefix = if is_last { "         └── " } else { "         ├── " };
                     println!("{}Intention: {}", prefix, node.intention.title);
                 }
+
+                // Commit intention tree JSON
+                if let Some(pr_num) = pr_number {
+                    let json = ivc_json::generate_ivc_json(&tree, &branch_label, &repo_name);
+                    if let Err(e) = ivc_json::commit_backfill_json(workdir, &json, pr_num) {
+                        println!("         Warning: failed to commit JSON: {e}");
+                    }
+                }
+
                 println!("         Stored. (~{} tokens)\n", estimated);
                 total_tokens_used += estimated;
             }
@@ -521,7 +537,9 @@ async fn process_single_merge(
     let cfg = config::load_config(ivc_dir)?;
     let client = ai::client::ClaudeClient::new(&cfg.ai.model)?;
 
-    let pr_label = stats.info.pr_number.map_or_else(
+    let pr_number = stats.info.pr_number;
+    let branch_label = merge_branch_label(&stats.info);
+    let pr_label = pr_number.map_or_else(
         || merge_label(&stats.info),
         |n| format!("PR #{n}"),
     );
@@ -582,6 +600,16 @@ async fn process_single_merge(
         if !is_last {
             println!("│");
         }
+    }
+
+    // Commit intention tree JSON
+    if let Some(pr_num) = pr_number {
+        let workdir = repo
+            .workdir()
+            .context("Could not determine working directory")?;
+        let json = ivc_json::generate_ivc_json(&tree, &branch_label, repo_name);
+        ivc_json::commit_backfill_json(workdir, &json, pr_num)?;
+        println!("Committed .ivc/trees/backfill/PR-{pr_num}.json");
     }
 
     println!("\nStored in SurrealDB. Run `ivc log` to view.");

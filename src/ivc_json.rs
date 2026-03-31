@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 use crate::git;
 use crate::models::intention::IntentionTree;
 
-/// Generate the .ivc.json content from an IntentionTree.
+/// Generate the .ivc.json content from an IntentionTree, with integrity hash.
 pub fn generate_ivc_json(
     tree: &IntentionTree,
     branch: &str,
@@ -43,7 +44,8 @@ pub fn generate_ivc_json(
         })
         .collect();
 
-    serde_json::json!({
+    // Build JSON without integrity field first
+    let mut json = serde_json::json!({
         "version": "1.0",
         "branch": branch,
         "repo": repo,
@@ -57,25 +59,86 @@ pub fn generate_ivc_json(
             "assumptions": tree.root.assumptions,
         },
         "sub_intentions": sub_intentions,
-    })
+    });
+
+    // Compute integrity hash over the content (without integrity field)
+    let integrity = compute_integrity(&json);
+    json["integrity"] = serde_json::Value::String(integrity);
+
+    json
 }
 
-/// Write .ivc.json to the repo root and commit it.
-pub fn commit_ivc_json(workdir: &Path, content: &serde_json::Value) -> Result<()> {
-    let json_path = workdir.join(".ivc.json");
+/// Write intention tree JSON to .ivc/trees/{branch}.json and commit.
+pub fn commit_ivc_json(workdir: &Path, content: &serde_json::Value, branch: &str) -> Result<()> {
+    let json_path = tree_file_path(workdir, branch);
+    write_and_commit(workdir, &json_path, content, "ivc: update intention tree")
+}
+
+/// Write backfill intention tree JSON to .ivc/trees/backfill/PR-{N}.json and commit.
+pub fn commit_backfill_json(
+    workdir: &Path,
+    content: &serde_json::Value,
+    pr_number: u32,
+) -> Result<()> {
+    let json_path = backfill_file_path(workdir, pr_number);
+    write_and_commit(
+        workdir,
+        &json_path,
+        content,
+        &format!("ivc: backfill intention tree for PR #{pr_number}"),
+    )
+}
+
+fn write_and_commit(
+    workdir: &Path,
+    json_path: &Path,
+    content: &serde_json::Value,
+    commit_message: &str,
+) -> Result<()> {
+    if let Some(parent) = json_path.parent() {
+        std::fs::create_dir_all(parent)
+            .context("Failed to create trees directory")?;
+    }
+
     let json_str =
-        serde_json::to_string_pretty(content).context("Failed to serialize .ivc.json")?;
+        serde_json::to_string_pretty(content).context("Failed to serialize intention tree")?;
+    std::fs::write(json_path, &json_str).context("Failed to write intention tree JSON")?;
 
-    std::fs::write(&json_path, &json_str).context("Failed to write .ivc.json")?;
+    let relative = json_path
+        .strip_prefix(workdir)
+        .unwrap_or(json_path)
+        .to_string_lossy()
+        .to_string();
 
-    git::commit::run_git_command("add", &[".ivc.json".to_string()])?;
-    git::commit::run_git_command(
-        "commit",
-        &[
-            "-m".to_string(),
-            "ivc: update intention tree".to_string(),
-        ],
-    )?;
+    git::commit::run_git_command("add", &[relative])?;
+    git::commit::run_git_command("commit", &["-m".to_string(), commit_message.to_string()])?;
 
     Ok(())
+}
+
+fn tree_file_path(workdir: &Path, branch: &str) -> PathBuf {
+    workdir
+        .join(".ivc")
+        .join("trees")
+        .join(format!("{}.json", sanitize_branch_name(branch)))
+}
+
+fn backfill_file_path(workdir: &Path, pr_number: u32) -> PathBuf {
+    workdir
+        .join(".ivc")
+        .join("trees")
+        .join("backfill")
+        .join(format!("PR-{pr_number}.json"))
+}
+
+fn sanitize_branch_name(branch: &str) -> String {
+    branch.replace('/', "-").replace('\\', "-")
+}
+
+fn compute_integrity(json_value: &serde_json::Value) -> String {
+    let canonical = serde_json::to_string(json_value).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    let hash = hasher.finalize();
+    format!("sha256:{:x}", hash)
 }
