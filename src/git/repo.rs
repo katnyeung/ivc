@@ -33,6 +33,33 @@ pub fn get_repo_name(repo: &Repository) -> Result<String> {
     Ok(name.to_string())
 }
 
+/// Extract (owner, repo) from the git remote origin URL.
+/// Handles both SSH and HTTPS formats.
+pub fn get_remote_owner_repo(repo: &Repository) -> Result<(String, String)> {
+    let remote = repo
+        .find_remote("origin")
+        .context("No 'origin' remote found")?;
+    let url = remote.url().context("Origin remote has no URL")?;
+
+    // SSH format: git@github.com:owner/repo.git
+    if let Some(rest) = url.strip_prefix("git@") {
+        if let Some((_host, path)) = rest.split_once(':') {
+            let path = path.trim_end_matches(".git");
+            if let Some((owner, repo_name)) = path.split_once('/') {
+                return Ok((owner.to_string(), repo_name.to_string()));
+            }
+        }
+    }
+
+    // HTTPS format: https://github.com/owner/repo.git
+    let parts: Vec<&str> = url.trim_end_matches(".git").rsplitn(3, '/').collect();
+    if parts.len() >= 2 {
+        return Ok((parts[1].to_string(), parts[0].to_string()));
+    }
+
+    anyhow::bail!("Could not parse owner/repo from remote URL: {url}")
+}
+
 pub fn get_current_branch(repo: &Repository) -> Result<String> {
     let head = repo.head().context("Failed to read HEAD reference")?;
     let name = head
