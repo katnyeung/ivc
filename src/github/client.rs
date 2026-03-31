@@ -31,6 +31,61 @@ impl GithubClient {
         })
     }
 
+    /// Find an existing open PR for the given head branch. Returns (PR number, URL) if found.
+    pub async fn find_existing_pr(&self, head: &str) -> Result<Option<(u64, String)>> {
+        let pulls = self
+            .octocrab
+            .pulls(&self.owner, &self.repo)
+            .list()
+            .state(octocrab::params::State::Open)
+            .head(format!("{}:{}", self.owner, head))
+            .send()
+            .await
+            .context("Failed to list pull requests")?;
+
+        if let Some(pr) = pulls.items.first() {
+            let url = pr
+                .html_url
+                .as_ref()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| format!(
+                    "https://github.com/{}/{}/pull/{}",
+                    self.owner, self.repo, pr.number
+                ));
+            Ok(Some((pr.number, url)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Update an existing PR's title and body.
+    pub async fn update_pr(
+        &self,
+        pr_number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<String> {
+        let pr = self
+            .octocrab
+            .pulls(&self.owner, &self.repo)
+            .update(pr_number)
+            .title(title)
+            .body(body)
+            .send()
+            .await
+            .context("Failed to update GitHub pull request")?;
+
+        let url = pr
+            .html_url
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| format!(
+                "https://github.com/{}/{}/pull/{}",
+                self.owner, self.repo, pr.number
+            ));
+
+        Ok(url)
+    }
+
     /// Create a pull request. Returns the PR URL.
     pub async fn create_pr(
         &self,

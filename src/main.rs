@@ -174,6 +174,10 @@ enum Commands {
         /// Skip GitHub PR creation (just extract and display)
         #[arg(long)]
         no_pr: bool,
+
+        /// Force create a new PR even if one already exists for this branch
+        #[arg(long, name = "new")]
+        force_new: bool,
     },
 
     /// Backfill intention trees for historical PRs
@@ -232,12 +236,14 @@ async fn main() -> Result<()> {
             draft,
             no_push,
             no_pr,
+            force_new,
         } => {
             cli::pr::run(cli::pr::PrArgs {
                 base: base.unwrap_or_default(),
                 draft,
                 no_push,
                 no_pr,
+                force_new,
             })
             .await
         }

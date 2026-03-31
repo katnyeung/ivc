@@ -15,6 +15,7 @@ pub struct PrArgs {
     pub draft: bool,
     pub no_push: bool,
     pub no_pr: bool,
+    pub force_new: bool,
 }
 
 pub async fn run(args: PrArgs) -> Result<()> {
@@ -188,7 +189,7 @@ pub async fn run(args: PrArgs) -> Result<()> {
         ])?;
     }
 
-    // Create GitHub PR if token is available
+    // Create or update GitHub PR if token is available
     if github::client::GithubClient::is_available() {
         let (owner, gh_repo) = resolve_github_owner_repo(&repo, &cfg)?;
         let description = github::pr_description::format_pr_description(
@@ -198,11 +199,30 @@ pub async fn run(args: PrArgs) -> Result<()> {
             ticket_ref,
         );
 
-        println!("Creating GitHub PR...");
         let gh = github::client::GithubClient::new(&owner, &gh_repo)?;
-        let pr_url = gh
-            .create_pr(&tree.root.title, &description, &branch, &base, args.draft)
-            .await?;
+
+        // Check for existing PR on this branch (unless --new is specified)
+        let existing_pr = if args.force_new {
+            None
+        } else {
+            gh.find_existing_pr(&branch).await?
+        };
+
+        let (pr_url, action) = if let Some((pr_number, _url)) = existing_pr {
+            // Update existing PR
+            println!("Updating existing PR #{}...", pr_number);
+            let url = gh
+                .update_pr(pr_number, &tree.root.title, &description)
+                .await?;
+            (url, "updated")
+        } else {
+            // Create new PR
+            println!("Creating GitHub PR...");
+            let url = gh
+                .create_pr(&tree.root.title, &description, &branch, &base, args.draft)
+                .await?;
+            (url, "created")
+        };
 
         // Record PrCreated event
         let pr_event = Event {
@@ -213,13 +233,14 @@ pub async fn run(args: PrArgs) -> Result<()> {
             payload: serde_json::json!({
                 "pr_url": pr_url,
                 "branch": branch,
+                "action": action,
                 "draft": args.draft,
             }),
             created_at: None,
         };
         db::event::record(&db, &pr_event).await?;
 
-        println!("PR created: {}", pr_url);
+        println!("PR {}: {}", action, pr_url);
     } else {
         println!(
             "\nGITHUB_TOKEN not set. Skipping PR creation.\n\
