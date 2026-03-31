@@ -4,22 +4,32 @@ use crate::ai;
 use crate::config;
 use crate::db;
 use crate::git;
+use crate::github;
+use crate::ivc_json;
 use crate::models::commit_capture::{CommitCapture, DiffStats};
 use crate::models::event::{Event, EventType};
 use crate::models::intention::{Intention, IntentionTree};
 
-pub async fn run(base: String) -> Result<()> {
+pub struct PrArgs {
+    pub base: String,
+    pub draft: bool,
+    pub no_push: bool,
+    pub no_pr: bool,
+    pub force_new: bool,
+}
+
+pub async fn run(args: PrArgs) -> Result<()> {
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let repo = git::repo::open_repo(&cwd)?;
     git::repo::require_ivc_initialised(&repo)?;
 
     // Resolve base branch: CLI arg > config > default "main"
     let ivc_dir = git::repo::get_ivc_dir(&repo)?;
-    let base = if base.is_empty() {
-        let cfg = config::load_config(&ivc_dir)?;
-        cfg.git.default_base
+    let cfg = config::load_config(&ivc_dir)?;
+    let base = if args.base.is_empty() {
+        cfg.git.default_base.clone()
     } else {
-        base
+        args.base.clone()
     };
 
     let branch = git::repo::get_current_branch(&repo)?;
@@ -44,7 +54,6 @@ pub async fn run(base: String) -> Result<()> {
     }
 
     // Connect to DB
-    let ivc_dir = git::repo::get_ivc_dir(&repo)?;
     let data_dir = ivc_dir.join("data");
     let db = db::connection::connect_embedded(&data_dir).await?;
 
@@ -98,9 +107,6 @@ pub async fn run(base: String) -> Result<()> {
         captures.len()
     );
 
-    // Load config for AI model
-    let cfg = config::load_config(&ivc_dir)?;
-
     // Call Claude API
     let client = ai::client::ClaudeClient::new(&cfg.ai.model)?;
     let response = client.extract_intentions(&prompt).await?;
@@ -137,12 +143,12 @@ pub async fn run(base: String) -> Result<()> {
         db::commit_capture::mark_processed(&db, &capture.commit_sha).await?;
     }
 
-    // Record event
+    // Record extraction event
     let event = Event {
         id: None,
         event_type: EventType::IntentionsExtracted,
         source: "CLI".to_string(),
-        intention: Some(root_id),
+        intention: Some(root_id.clone()),
         payload: serde_json::json!({
             "branch": branch,
             "commit_count": captures.len(),
@@ -158,9 +164,106 @@ pub async fn run(base: String) -> Result<()> {
 
     display_intention_tree(&tree, &branch, captures.len(), ticket_ref);
 
+    // ── Phase 2: .ivc.json + GitHub PR ──────────────────────────────
+
+    // Generate and commit .ivc.json
+    let workdir = repo
+        .workdir()
+        .context("Could not determine repository working directory")?;
+    let ivc_json_content = ivc_json::generate_ivc_json(&tree, &branch, &repo_name);
+    ivc_json::commit_ivc_json(workdir, &ivc_json_content, &branch)?;
+    println!("\nCommitted intention tree to .ivc/trees/.");
+
+    if args.no_pr {
+        println!("Stored in .ivc/data. Run `ivc log` to view again.");
+        return Ok(());
+    }
+
+    // Push branch if not --no-push
+    if !args.no_push {
+        println!("Pushing branch to remote...");
+        git::commit::run_git_command("push", &[
+            "-u".to_string(),
+            "origin".to_string(),
+            branch.clone(),
+        ])?;
+    }
+
+    // Create or update GitHub PR if token is available
+    if github::client::GithubClient::is_available() {
+        let (owner, gh_repo) = resolve_github_owner_repo(&repo, &cfg)?;
+        let description = github::pr_description::format_pr_description(
+            &tree,
+            &branch,
+            captures.len(),
+            ticket_ref,
+        );
+
+        let gh = github::client::GithubClient::new(&owner, &gh_repo)?;
+
+        // Check for existing PR on this branch (unless --new is specified)
+        let existing_pr = if args.force_new {
+            None
+        } else {
+            gh.find_existing_pr(&branch).await?
+        };
+
+        let (pr_url, action) = if let Some((pr_number, _url)) = existing_pr {
+            // Update existing PR
+            println!("Updating existing PR #{}...", pr_number);
+            let url = gh
+                .update_pr(pr_number, &tree.root.title, &description)
+                .await?;
+            (url, "updated")
+        } else {
+            // Create new PR
+            println!("Creating GitHub PR...");
+            let url = gh
+                .create_pr(&tree.root.title, &description, &branch, &base, args.draft)
+                .await?;
+            (url, "created")
+        };
+
+        // Record PrCreated event
+        let pr_event = Event {
+            id: None,
+            event_type: EventType::PrCreated,
+            source: "CLI".to_string(),
+            intention: Some(root_id),
+            payload: serde_json::json!({
+                "pr_url": pr_url,
+                "branch": branch,
+                "action": action,
+                "draft": args.draft,
+            }),
+            created_at: None,
+        };
+        db::event::record(&db, &pr_event).await?;
+
+        println!("PR {}: {}", action, pr_url);
+    } else {
+        println!(
+            "\nGITHUB_TOKEN not set. Skipping PR creation.\n\
+             Set GITHUB_TOKEN to create a GitHub PR automatically."
+        );
+    }
+
     println!("\nStored in .ivc/data. Run `ivc log` to view again.");
 
     Ok(())
+}
+
+fn resolve_github_owner_repo(
+    repo: &git2::Repository,
+    cfg: &config::IvcConfig,
+) -> Result<(String, String)> {
+    let owner = cfg.github.owner.clone();
+    let gh_repo = cfg.github.repo.clone();
+
+    match (owner, gh_repo) {
+        (Some(o), Some(r)) => Ok((o, r)),
+        _ => git::repo::get_remote_owner_repo(repo),
+    }
 }
 
 fn display_intention_tree(

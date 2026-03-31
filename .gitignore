@@ -1,8 +1,9 @@
 # Rust build artifacts
 /target/
 
-# IVC local data
-.ivc/
+# IVC local data (trees/ is committed for intention tracking)
+.ivc/data/
+.ivc/config.toml
 
 # Environment
 .env

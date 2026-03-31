@@ -8,6 +8,8 @@ mod config;
 mod db;
 mod errors;
 mod git;
+mod github;
+mod ivc_json;
 mod models;
 
 #[derive(Parser)]
@@ -160,6 +162,22 @@ enum Commands {
         /// Base branch to compare against (reads from .ivc/config.toml if not provided)
         #[arg(long)]
         base: Option<String>,
+
+        /// Create PR as draft
+        #[arg(long)]
+        draft: bool,
+
+        /// Skip pushing the branch to remote
+        #[arg(long)]
+        no_push: bool,
+
+        /// Skip GitHub PR creation (just extract and display)
+        #[arg(long)]
+        no_pr: bool,
+
+        /// Force create a new PR even if one already exists for this branch
+        #[arg(long, name = "new")]
+        force_new: bool,
     },
 
     /// Backfill intention trees for historical PRs
@@ -213,7 +231,22 @@ async fn main() -> Result<()> {
         Commands::Init => cli::init::run().await,
         Commands::Commit { args } => cli::commit::run(args).await,
         Commands::Push { args } => cli::push::run(args).await,
-        Commands::Pr { base } => cli::pr::run(base.unwrap_or_default()).await,
+        Commands::Pr {
+            base,
+            draft,
+            no_push,
+            no_pr,
+            force_new,
+        } => {
+            cli::pr::run(cli::pr::PrArgs {
+                base: base.unwrap_or_default(),
+                draft,
+                no_push,
+                no_pr,
+                force_new,
+            })
+            .await
+        }
         Commands::Backfill {
             pr,
             file,

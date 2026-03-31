@@ -1,0 +1,184 @@
+{
+  "version": "1.0",
+  "branch": "feature/phase2-github-pr",
+  "repo": "ivc",
+  "extracted_at": "2026-03-31T23:48:09.325382925+00:00",
+  "root": {
+    "title": "Implement GitHub PR creation with structured intention tree output",
+    "type": "FEATURE",
+    "reasoning": "Complete the workflow by automatically creating GitHub PRs with rich intention tree descriptions and generating .ivc.json files to store structured intention data alongside code changes",
+    "files_changed": [
+      "src/cli/pr.rs",
+      "src/github/client.rs",
+      "src/github/pr_description.rs",
+      "src/ivc_json.rs",
+      "src/main.rs",
+      "src/config.rs",
+      "Cargo.toml",
+      ".gitignore"
+    ],
+    "uncertainties": [
+      "GitHub API rate limiting behavior",
+      "Handling of various git remote URL formats",
+      "User preferences for draft vs regular PRs"
+    ],
+    "assumptions": [
+      "Users will set GITHUB_TOKEN environment variable",
+      "Git remote origin follows standard GitHub URL patterns",
+      "JSON format is sufficient for intention tree storage"
+    ]
+  },
+  "sub_intentions": [
+    {
+      "title": "Add GitHub client integration with octocrab",
+      "type": "FEATURE",
+      "reasoning": "Need reliable GitHub API integration to create pull requests programmatically with proper authentication and error handling",
+      "files_changed": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "src/github/client.rs",
+        "src/github/mod.rs"
+      ],
+      "uncertainties": [
+        "Token permission requirements",
+        "API rate limit handling"
+      ],
+      "assumptions": [
+        "octocrab provides sufficient GitHub API coverage",
+        "Personal access tokens are preferred over OAuth"
+      ]
+    },
+    {
+      "title": "Generate structured .ivc.json files from intention trees",
+      "type": "FEATURE",
+      "reasoning": "Provide machine-readable intention data that can be consumed by other tools, IDEs, or CI/CD pipelines for documentation and analysis",
+      "files_changed": [
+        "src/ivc_json.rs"
+      ],
+      "uncertainties": [
+        "Optimal JSON schema structure",
+        "Versioning strategy for format changes"
+      ],
+      "assumptions": [
+        "JSON format will remain stable",
+        "File should be committed to version control"
+      ]
+    },
+    {
+      "title": "Format intention trees as rich markdown PR descriptions",
+      "type": "FEATURE",
+      "reasoning": "Transform structured intention data into human-readable PR descriptions that help reviewers understand the purpose and context of code changes",
+      "files_changed": [
+        "src/github/pr_description.rs"
+      ],
+      "uncertainties": [
+        "Optimal markdown structure for readability",
+        "How much detail to include in descriptions"
+      ],
+      "assumptions": [
+        "GitHub supports the markdown features used",
+        "Reviewers prefer structured over free-form descriptions"
+      ],
+      "depends_on": [
+        "Generate structured .ivc.json files from intention trees"
+      ]
+    },
+    {
+      "title": "Extend CLI with GitHub workflow options and configuration",
+      "type": "FEATURE",
+      "reasoning": "Provide users control over the PR creation process with flags for drafts, pushing, and GitHub integration while maintaining backward compatibility",
+      "files_changed": [
+        "src/cli/pr.rs",
+        "src/main.rs",
+        "src/config.rs"
+      ],
+      "uncertainties": [
+        "Default behavior preferences",
+        "Configuration file structure evolution"
+      ],
+      "assumptions": [
+        "Users want fine-grained control over automation",
+        "Configuration should be optional with sensible defaults"
+      ],
+      "depends_on": [
+        "Add GitHub client integration with octocrab"
+      ]
+    },
+    {
+      "title": "Add git remote parsing for GitHub repository detection",
+      "type": "FEATURE",
+      "reasoning": "Automatically detect GitHub owner/repo from git remotes to reduce configuration burden and support common repository URL formats",
+      "files_changed": [
+        "src/git/repo.rs"
+      ],
+      "uncertainties": [
+        "Coverage of all possible git remote URL formats",
+        "Handling of non-GitHub remotes"
+      ],
+      "assumptions": [
+        "Origin remote points to GitHub",
+        "Standard GitHub URL patterns are used"
+      ]
+    },
+    {
+      "title": "Add intention tree file storage in .ivc/trees/ with integrity hashing",
+      "type": "FEATURE",
+      "reasoning": "Store intention trees as committed files for version control tracking and provide integrity verification to detect tampering or corruption",
+      "files_changed": [
+        "src/cli/backfill.rs",
+        "src/cli/init.rs",
+        "src/cli/pr.rs",
+        "src/ivc_json.rs"
+      ],
+      "uncertainties": [
+        "Storage format evolution needs",
+        "Merge conflict handling for tree files"
+      ],
+      "assumptions": [
+        "Tree files should be committed for historical tracking",
+        "SHA256 provides sufficient integrity verification"
+      ],
+      "depends_on": [
+        "Generate structured .ivc.json files from intention trees"
+      ]
+    },
+    {
+      "title": "Update existing PR instead of creating duplicates, fix .gitignore for .ivc/trees/",
+      "type": "BUG_FIX",
+      "reasoning": "Prevent spam from multiple PRs on the same branch and ensure intention tree files are committed while keeping sensitive data private",
+      "files_changed": [
+        ".gitignore",
+        "src/cli/pr.rs",
+        "src/github/client.rs",
+        "src/main.rs"
+      ],
+      "uncertainties": [
+        "Edge cases in PR detection logic"
+      ],
+      "assumptions": [
+        "Users typically want to update existing PRs on the same branch",
+        "Tree files should be version controlled but config should remain private"
+      ],
+      "depends_on": [
+        "Add GitHub client integration with octocrab"
+      ]
+    },
+    {
+      "title": "Expand database schema for external source tracking",
+      "type": "FEATURE",
+      "reasoning": "Prepare data model for future integration with ticket systems and external requirements by adding source tracking tables",
+      "files_changed": [
+        "src/db/schema.rs"
+      ],
+      "uncertainties": [
+        "Future integration requirements",
+        "Schema evolution needs"
+      ],
+      "assumptions": [
+        "External source integration will be needed",
+        "Coverage tracking will be valuable for analysis"
+      ]
+    }
+  ],
+  "integrity": "sha256:019dbdd640afcad2f53e96a0f12850cd0b35328504a59528d0ca6a8c25aeb47c"
+}

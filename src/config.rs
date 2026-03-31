@@ -10,6 +10,8 @@ pub struct IvcConfig {
     pub ai: AiConfig,
     #[serde(default)]
     pub git: GitConfig,
+    #[serde(default)]
+    pub github: GithubConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +48,12 @@ fn default_provider() -> String {
 fn default_model() -> String {
     "claude-sonnet-4-20250514".to_string()
 }
+#[derive(Debug, Deserialize, Default)]
+pub struct GithubConfig {
+    pub owner: Option<String>,
+    pub repo: Option<String>,
+}
+
 fn default_base() -> String {
     "main".to_string()
 }
@@ -82,6 +90,7 @@ impl Default for IvcConfig {
             database: DatabaseConfig::default(),
             ai: AiConfig::default(),
             git: GitConfig::default(),
+            github: GithubConfig::default(),
         }
     }
 }
@@ -109,5 +118,11 @@ model = "claude-sonnet-4-20250514"
 
 [git]
 default_base = "main"
+
+# [github]
+# owner and repo are auto-detected from git remote origin
+# GITHUB_TOKEN env var is used for authentication
+# owner = "your-github-username"
+# repo = "your-repo-name"
 "#
 }

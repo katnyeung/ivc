@@ -65,6 +65,24 @@ DEFINE FIELD IF NOT EXISTS reason ON depends_on TYPE option<string>;
 -- Link intention to the commits it was derived from
 DEFINE TABLE IF NOT EXISTS derived_from_commit SCHEMAFULL TYPE RELATION IN intention OUT commit_capture;
 
+-- Phase 2: Ticket/external source data
+DEFINE TABLE IF NOT EXISTS intention_source SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS source_type ON intention_source TYPE string;
+DEFINE FIELD IF NOT EXISTS source_url ON intention_source TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS ticket_key ON intention_source TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS summary ON intention_source TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS acceptance_criteria ON intention_source TYPE array;
+DEFINE FIELD IF NOT EXISTS acceptance_criteria.* ON intention_source TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON intention_source TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS source_ticket_idx ON intention_source FIELDS ticket_key UNIQUE;
+
+-- Link intention to external source with coverage
+DEFINE TABLE IF NOT EXISTS derived_from_source SCHEMAFULL TYPE RELATION IN intention OUT intention_source;
+DEFINE FIELD IF NOT EXISTS coverage ON derived_from_source TYPE float;
+DEFINE FIELD IF NOT EXISTS missing_criteria ON derived_from_source TYPE array;
+DEFINE FIELD IF NOT EXISTS missing_criteria.* ON derived_from_source TYPE string;
+
 -- Append-only event log
 DEFINE TABLE IF NOT EXISTS event SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS event_type ON event TYPE string;
